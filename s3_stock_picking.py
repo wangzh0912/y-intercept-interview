@@ -9,5 +9,5 @@ df_pbo_res = pd.read_csv(join(DATA_PATH, 'pbo_result.csv'), index_col=0)
 df_selected = df_pbo_res[df_pbo_res['pbo'] > 0.75]
 
 for row in df_selected.iterrows():
-    print(type(row))
+    print(row[1])
 # %%
