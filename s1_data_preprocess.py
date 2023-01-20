@@ -21,7 +21,7 @@ def main():
     df_price = pd.pivot_table(df, values='last', index='date', columns='ticker')
     df_volume = pd.pivot_table(df, values='volume', index='date', columns='ticker')
 
-    # 2. drop assets that have more than 40% total val which are missing
+    # 2. Drop assets that have more than 40% total val which are missing
     # drop assets that have more than 20% val in recent one year which are missing
 
     total_no_missing = set(filter_missing_value(df_price, 0.4))

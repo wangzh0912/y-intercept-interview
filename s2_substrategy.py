@@ -8,7 +8,7 @@ import itertools
 from utils.path import DATA_PATH
 
 
-def MACD_timing(df_single_price, asset, pars):
+def MACD_timing(df_single_price, asset, pars, verbose=False, long_only=False):
     result = pd.DataFrame()
     for fp in pars['fastperiod']:
         for sp in pars['slowperiod']:
@@ -33,13 +33,21 @@ def MACD_timing(df_single_price, asset, pars):
                 ((df['yes_MACD'] < 0) & (df['daybeforyes_MACD'] > 0) & (
                             df['yes_DIF'] < 0) & (df['yes_DEA'] < 0)), -1,
                 df['position'])
+            
+
             df['position'] = df['position'].ffill().fillna(0)
+
+            if long_only:
+                df['position'] = df['position'].where(df['position'] > 0, 0)
+
             df['MACD_return'] = df['position'] * df['benchmark_ret']
             result[name] = df['MACD_return']
+    if verbose:
+        return df
     return result
 
 
-def RSI_timing(df_single_price, asset, pars):
+def RSI_timing(df_single_price, asset, pars, verbose=False, long_only=False):
     result = pd.DataFrame()
     for tp in pars['timeperiod']:
         for bt in pars['buy_threshold']:
@@ -54,12 +62,19 @@ def RSI_timing(df_single_price, asset, pars):
                 df['position'] = np.where(df['yes_RSI'] > st, -1,
                                           df['position'])
                 df['position'] = df['position'].ffill().fillna(0)
+
+                if long_only:
+                    df['position'] = df['position'].where(df['position'] > 0, 0)
+
+
                 df['RSI_return'] = df['position'] * df['benchmark_ret']
                 result[name] = df['RSI_return']
+    if verbose:
+        return df
     return result
 
 
-def Bolling_timing(df_single_price, asset, pars):
+def Bolling_timing(df_single_price, asset, pars, verbose=False, long_only=False):
     result = pd.DataFrame()
     for tp in pars['timeperiod']:
         for nbdev in pars['nbdev']:
@@ -86,8 +101,14 @@ def Bolling_timing(df_single_price, asset, pars):
                             df['yes_close'] < df['yes_floor']), -1,
                 df['position'])
             df['position'] = df['position'].ffill().fillna(0)
+
+            if long_only:
+                df['position'] = df['position'].where(df['position'] > 0, 0)
+
             df['Bolling_return'] = df['position'] * df['benchmark_ret']
             result[name] = df['Bolling_return']
+    if verbose:
+        return df
     return result
 
 
@@ -97,18 +118,18 @@ def single_asset_strat(df_price, asset: str, strat_params: dict):
     df_single_price.dropna(inplace=True)
 
     # 1. MACD
-    df_tmp1 = MACD_timing(df_single_price, asset, strat_params['macd'])
+    df_tmp1 = MACD_timing(df_single_price, asset, strat_params['macd'], long_only=True)
     df_tmp1 = (df_tmp1 + 1).cumprod(axis=0)
     # 2. RSI
-    df_tmp2 = RSI_timing(df_single_price, asset, strat_params['rsi'])
+    df_tmp2 = RSI_timing(df_single_price, asset, strat_params['rsi'], long_only=True)
     df_tmp2 = (df_tmp2 + 1).cumprod(axis=0)
     # 3. Bolling
-    df_tmp3 = Bolling_timing(df_single_price, asset, strat_params['bolling'])
+    df_tmp3 = Bolling_timing(df_single_price, asset, strat_params['bolling'], long_only=True)
     df_tmp3 = (df_tmp3 + 1).cumprod(axis=0)
 
     df_nav = pd.concat((df_tmp1, df_tmp2, df_tmp3), axis=1)
     
-    S = 10
+    S = 8
     df_ret = df_nav.pct_change()
     df_ret.dropna(inplace=True)
     T, N = df_ret.shape
@@ -117,7 +138,7 @@ def single_asset_strat(df_price, asset: str, strat_params: dict):
     id_chunks = [df_ret.index[i:i + T2S] for i in range(0, len(df_ret), T2S)] # sepreate dates into S chunks
 
     # K fold CV
-    Cs = list(itertools.combinations(range(S), 8))
+    Cs = list(itertools.combinations(range(S), S // 2))
     df_results = pd.DataFrame({'w': [], 'sr_in': [], 'sr_out': [], 'best_in': []})
     for i_iter in range(len(Cs)):
         # in sample and out sample
@@ -135,10 +156,12 @@ def single_asset_strat(df_price, asset: str, strat_params: dict):
         name_best = sr_in_sample.index[id_best]
         rank_best = sr_out_sample.rank(ascending=False)[id_best]
         w = rank_best / (N + 1)
+        # w = 1, then the best in-sample is the worst out-sample (overfitting)
+
         # save results
         df_results.loc[i_iter, :] = [w, sr_in_sample[id_best], sr_out_sample[id_best], name_best]
 
-    # compute pbo
+    # compute pbo: the frequency that w is larger than 50%
     pbo = (df_results['w'] >= 0.5).sum() / len(Cs)
     # print(asset + ': PBO = %.2f among %d strategies' % (pbo, N))
     # print(asset + ': best strategy is %s' % df_results['best_in'].value_counts().index[0])
